@@ -1,0 +1,9 @@
+Arquivos de Sistema e Ambientes
+.env
+venv/
+__pycache__/
+
+# Arquivos de Segredos
+service_account.json
+*.pyc
+*.db
