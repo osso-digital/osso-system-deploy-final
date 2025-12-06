@@ -1,0 +1,23 @@
+# Arquivos e pastas padrão do Python/Ambiente
+
+# Exclui o ambiente virtual e cache do Python
+venv/
+.venv/
+__pycache__/
+
+# Exclui arquivos de sistema operacional e de desenvolvimento
+*.log
+*.sqlite3
+.DS_Store
+.idea/
+.vscode/
+
+# Exclui arquivos de controle de versão (Embora você possa manter o .gitignore)
+.git
+.gitignore
+
+# Exclui a própria configuração de exclusão, para evitar loops
+.gcloudignore
+
+# Adicione qualquer pasta específica que você não queira no deploy
+# service_account_json/

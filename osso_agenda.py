@@ -1,114 +1,115 @@
+# -*- coding: utf-8 -*-
 # osso_agenda.py
-# Módulo: OssoAgenda (Agente de Agendamento)
-# Gerencia a disponibilidade do estúdio e o agendamento.
+# Módulo: Agenda (Firestore) - Implementação persistente
 
-import os
 import datetime
 from typing import List, Dict, Any, Tuple
+from osso_tools import log_evento
+# O osso_data.py já inicializa o Firebase. Importamos DB diretamente.
+from osso_data import obter_atendimento_por_id, atualizar_status_atendimento, DB 
 
-# Importa as ferramentas essenciais
-try:
-    from osso_tools import log_evento, obter_data_hora_atual
-    # OssoData seria usado aqui para atualizar o status do atendimento para "AGENDADO"
-    # from osso_data import atualizar_status_atendimento 
-except ImportError:
-    def log_evento(msg, nivel='INFO'): print(f"[{nivel}] osso_agenda: {msg}")
-    def obter_data_hora_atual(): return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+AGENDA_COLLECTION = 'agenda'
 
-# --- SIMULAÇÃO DO CALENDÁRIO (Substitui a API do Google Calendar) ---
-# Horários fixos indisponíveis (Data, Hora de Início)
-CALENDARIO_SIMULADO = [
-    ("2025-11-10", 10), # Segunda, 10h ocupada
-    ("2025-11-10", 14), # Segunda, 14h ocupada
-    ("2025-11-11", 11), # Terça, 11h ocupada
-]
-HORARIO_INICIO = 9
-HORARIO_FIM = 18
+# --- Definições da Agenda ---
+HORARIO_INICIO = 9  # 9h
+HORARIO_FIM = 18  # 18h
+BLOCO_MINUTOS = 60 # Blocos de 1 hora
 
-def verificar_disponibilidade_simulada(data_alvo: str, duracao_horas: int = 2) -> List[int]:
+def calcular_blocos_necessarios(duracao_horas: float) -> int:
+    """Calcula quantos blocos de 60 minutos são necessários."""
+    return max(1, int(duracao_horas * 60 / BLOCO_MINUTOS))
+
+def formatar_data_firestore(data: datetime.date) -> str:
+    """Formata a data como string YYYY-MM-DD para Firestore."""
+    return data.strftime('%Y-%m-%d')
+
+def _obter_agenda_dia(data_str: str) -> Dict[int, str]:
     """
-    Verifica quais horários estão livres para agendamento em uma data alvo.
-    Retorna uma lista de horas livres (9, 11, 13, etc.).
+    Busca o documento da agenda para o dia específico no Firestore.
+    Retorna um dicionário {hora: id_atendimento}.
     """
-    log_evento(f"Verificando disponibilidade para {data_alvo}...", 'INFO')
+    # Usa o cliente DB do osso_data.py
+    doc_ref = DB.collection(AGENDA_COLLECTION).document(data_str)
+    doc = doc_ref.get()
     
-    try:
-        data_hoje = datetime.datetime.strptime(obter_data_hora_atual()[:10], '%Y-%m-%d').date()
-        data_check = datetime.datetime.strptime(data_alvo, '%Y-%m-%d').date()
-    except ValueError:
-        log_evento("Formato de data inválido. Use AAAA-MM-DD.", 'ERROR')
-        return []
+    if doc.exists:
+        # A chave 'blocos' armazena o mapa da agenda
+        return doc.to_dict().get('blocos', {})
+    return {}
 
-    # Ignora datas passadas
-    if data_check <= data_hoje:
-        log_evento("Data inválida ou no passado.", 'WARNING')
-        return []
+def _salvar_agenda_dia(data_str: str, blocos: Dict[int, str]):
+    """Salva os blocos de agenda atualizados no Firestore."""
+    # Usa o cliente DB do osso_data.py
+    doc_ref = DB.collection(AGENDA_COLLECTION).document(data_str)
+    doc_ref.set({'blocos': blocos})
+    log_evento(f"Agenda salva no Firestore para {data_str}.", 'DEBUG', 'osso_agenda')
 
+
+def verificar_disponibilidade_simulada(data_str: str, duracao_horas: float) -> List[int]:
+    """
+    Verifica os horários disponíveis para uma duração específica.
+    """
+    agenda_dia = _obter_agenda_dia(data_str)
+    
+    blocos_necessarios = calcular_blocos_necessarios(duracao_horas)
     horarios_livres = []
-    
-    for hora in range(HORARIO_INICIO, HORARIO_FIM):
-        is_livre = True
+
+    log_evento(f"Verificando disponibilidade para {data_str} (Duração: {duracao_horas}h)...", 'INFO', 'Geral')
+
+    for hora_inicio in range(HORARIO_INICIO, HORARIO_FIM - blocos_necessarios + 1):
+        esta_livre = True
         
-        # 1. Verifica se a hora de início ou o slot de duração estão bloqueados
-        for i in range(duracao_horas):
-            if (data_alvo, hora + i) in CALENDARIO_SIMULADO or (hora + i) >= HORARIO_FIM:
-                is_livre = False
+        # Verifica se todos os blocos necessários estão livres
+        for i in range(blocos_necessarios):
+            bloco_hora = hora_inicio + i
+            if bloco_hora in agenda_dia:
+                esta_livre = False
                 break
         
-        if is_livre:
-            horarios_livres.append(hora)
-            
+        if esta_livre:
+            horarios_livres.append(hora_inicio)
+
     return horarios_livres
 
-def agendar_horario(atendimento_id: int, data: str, hora: int, cliente: str) -> bool:
+def agendar_horario(
+    atendimento_id: str, 
+    data_str: str, 
+    hora_inicio: int, 
+    nome_cliente: str, 
+    duracao_horas: float
+) -> bool:
     """
-    Simula a criação de um evento no Google Calendar (Ponto 5).
+    Bloqueia o horário no Firestore.
     """
-    log_evento(f"Tentando agendar {cliente} para {data} às {hora}h...", 'INFO')
+    agenda_dia = _obter_agenda_dia(data_str)
+    blocos_necessarios = calcular_blocos_necessarios(duracao_horas)
     
-    # 1. Checagem final (simulando 2 horas de duração)
-    horarios_disponiveis = verificar_disponibilidade_simulada(data, duracao_horas=2)
-    if hora not in horarios_disponiveis:
-        log_evento(f"Falha: O horário {hora}h em {data} não está mais disponível.", 'ERROR')
+    # 1. Checagem dupla (para evitar conflitos de última hora)
+    for i in range(blocos_necessarios):
+        bloco_hora = hora_inicio + i
+        if bloco_hora in agenda_dia:
+            log_evento(f"ERRO: Conflito de agendamento detectado em {data_str} às {bloco_hora}h.", 'ERROR', 'Geral')
+            return False
+
+    # 2. Bloqueia os blocos
+    for i in range(blocos_necessarios):
+        bloco_hora = hora_inicio + i
+        agenda_dia[bloco_hora] = atendimento_id # O valor é o ID do documento
+
+    # 3. Salva no Firestore
+    try:
+        _salvar_agenda_dia(data_str, agenda_dia)
+        
+        # 4. Atualiza o status do atendimento para AGENDADO
+        atualizar_status_atendimento(
+            atendimento_id, 
+            'AGENDADO', 
+            data_agendamento=data_str, 
+            hora_agendamento=hora_inicio
+        )
+        
+        log_evento(f"SUCESSO: Agendamento criado para {nome_cliente} (ID: {atendimento_id}) em {data_str} às {hora_inicio}h. BD atualizado.", 'INFO', 'Geral')
+        return True
+    except Exception as e:
+        log_evento(f"ERRO ao salvar o agendamento no Firestore: {e}", 'ERROR', 'Geral')
         return False
-        
-    # 2. Simulação de Criação do Evento
-    # Se fosse real, isso chamaria a API do Google Calendar e o osso_data.py
-    
-    # 3. Simulação de Inserção no Calendário Fictício (para teste)
-    CALENDARIO_SIMULADO.append((data, hora))
-    # Bloqueia a próxima hora para o teste de 2 horas
-    CALENDARIO_SIMULADO.append((data, hora + 1)) 
-    
-    log_evento(f"SUCESSO: Agendamento criado para {cliente} às {hora}h em {data}. ID: {atendimento_id}", 'INFO')
-    
-    # OBS: Aqui o osso_data.py seria chamado para mudar o status do atendimento no BD para "AGENDADO"
-    
-    return True
-
-# --- Bloco de Testes ---
-if __name__ == '__main__':
-    log_evento(f"Iniciando testes do {os.path.basename(__file__)} (OssoAgenda)", 'INFO')
-    
-    # Testa a disponibilidade na Segunda-feira (2025-11-10)
-    print("\n--- Teste 1: Disponibilidade na Segunda (10/11) ---")
-    data_segunda = "2025-11-10"
-    livres_segunda = verificar_disponibilidade_simulada(data_segunda, duracao_horas=2)
-    print(f"Horários livres em {data_segunda} (2h): {livres_segunda}") 
-    
-    # Tenta agendar para a Segunda às 12h (2h de duração)
-    print("\n--- Teste 2: Agendamento e Bloqueio ---")
-    cliente_teste = "Cliente Agenda Teste"
-    hora_alvo = 12
-    
-    if agendar_horario(999, data_segunda, hora_alvo, cliente_teste):
-        print(f"Resultado: Agendamento SUCEEDED para {hora_alvo}h.")
-    else:
-        print(f"Resultado: Agendamento FAILED para {hora_alvo}h.")
-        
-    # Verifica a disponibilidade novamente (o horário 12h e 13h devem ter sumido)
-    print("\n--- Teste 3: Verificação Pós-Agendamento ---")
-    livres_depois = verificar_disponibilidade_simulada(data_segunda, duracao_horas=2)
-    print(f"Horários livres em {data_segunda} (DEPOIS): {livres_depois}")
-
-    log_evento("Testes do osso_agenda.py concluídos.", 'INFO')

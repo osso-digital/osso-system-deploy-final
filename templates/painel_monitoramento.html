@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Orçamentômetro - OSCO Bot Monitor</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; background-color: #f4f4f4; color: #333; }
+        .container { max-width: 1000px; margin: 0 auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        h1 { color: #cc0000; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        #status { margin-bottom: 20px; padding: 10px; border-radius: 5px; font-weight: bold; }
+        #leads-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        #leads-table th, #leads-table td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+        #leads-table th { background-color: #cc0000; color: white; }
+        .success { background-color: #d4edda; color: #155724; }
+        .error { background-color: #f8d7da; color: #721c24; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Orçamentômetro - Monitor de Leads (OSSO Bot)</h1>
+        <div id="status">Carregando dados...</div>
+        <table id="leads-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Nome do Cliente</th>
+                    <th>WhatsApp</th>
+                    <th>Pergunta</th>
+                    <th>Status / Valor</th>
+                </tr>
+            </thead>
+            <tbody>
+                </tbody>
+        </table>
+    </div>
+
+    <script>
+        // CORREÇÃO FINAL: Usar a URL local (localhost)
+        const LOCAL_URL_BASE = "http://localhost:8000"; 
+        const API_ROUTE = "/api/leads";
+        const statusDiv = document.getElementById('status');
+        const tableBody = document.querySelector('#leads-table tbody');
+
+        async function fetchLeads() {
+            statusDiv.className = '';
+            statusDiv.textContent = 'Buscando dados da API...';
+            tableBody.innerHTML = '';
+
+            try {
+                // CHAMA DIRETAMENTE A API LOCAL DO FLASK/WAITRESS
+                const response = await fetch(LOCAL_URL_BASE + API_ROUTE);
+                
+                if (!response.ok) {
+                    statusDiv.className = 'error';
+                    // Mensagem de erro corrigida para refletir a falha de rota local
+                    statusDiv.textContent = `❌ Erro ${response.status}: API de Leads falhou. Servidor não está respondendo na rota /api/leads.`;
+                    return;
+                }
+
+                const data = await response.json();
+
+                if (data.status === 'sucesso') {
+                    statusDiv.className = 'success';
+                    statusDiv.textContent = `✅ Sucesso! Total de ${data.leads.length} leads encontrados.`;
+
+                    data.leads.forEach(lead => {
+                        const row = tableBody.insertRow();
+                        
+                        // Assumindo que seu CSV tem as colunas abaixo. Adapte se necessário.
+                        const columns = [
+                            lead.id || 'N/A', 
+                            lead.nome_cliente || 'Desconhecido', 
+                            lead.whatsapp || 'N/A', 
+                            lead.pergunta_cliente ? lead.pergunta_cliente.substring(0, 50) + '...' : 'Sem pergunta',
+                            lead.valor_final || lead.status_processamento || 'Processando'
+                        ];
+
+                        columns.forEach(text => {
+                            const cell = row.insertCell();
+                            cell.textContent = text;
+                        });
+                    });
+                } else {
+                    statusDiv.className = 'error';
+                    statusDiv.textContent = `❌ Erro na API: ${data.mensagem}`;
+                }
+
+            } catch (error) {
+                statusDiv.className = 'error';
+                statusDiv.textContent = `❌ Erro de Conexão: O servidor (${LOCAL_URL_BASE}) não respondeu. Verifique se o servidor Waitress está ativo.`;
+            }
+        }
+
+        // Atualiza a cada 10 segundos
+        fetchLeads(); 
+        setInterval(fetchLeads, 10000); 
+
+    </script>
+</body>
+</html>

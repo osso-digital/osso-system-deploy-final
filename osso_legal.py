@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # osso_legal.py
 # Módulo: OssoLegal (Agente de Conformidade e Saúde)
 # Gerencia o envio de Fichas de Anamnese e Termos Legais.
@@ -5,11 +6,9 @@
 from typing import Dict, Any
 import os
 
-# Importa as ferramentas e o novo módulo de dados baseado em BD
+# Importa as ferramentas e as configurações necessárias
 try:
     from osso_tools import log_evento
-    # OBS: Usamos 'pass' nas funções de BD pois este é um módulo de lógica, não de dados.
-    # A atualização do BD será feita pelo osso_data.py
     from osso_config import WH_FICHA_ANAMNESE, WH_TERMO_CONSENTIMENTO 
 except ImportError as e:
     def log_evento(msg, nivel='INFO'):

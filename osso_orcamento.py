@@ -1,144 +1,167 @@
+# -*- coding: utf-8 -*-
 # osso_orcamento.py
-# Módulo: OssoPreço (O Vendedor/Calculista)
-# Responsável pela lógica de cálculo de valor e atualização do BD.
+# Versão atualizada com regras do estúdio Bone
 
-import random
 from typing import Dict, Any, List
-import os
-import pandas as pd # Mantido para compatibilidade com o fluxo de dados
+import math
 
-# Importa as ferramentas e o módulo de dados (que agora usa BD)
 try:
-    from osso_tools import log_evento, formatar_moeda, obter_data_hora_atual
-    # Importa as funções do BD
-    from osso_data import carregar_todos_atendimentos, atualizar_orcamento_atendimento
-    from osso_models import Atendimento # Necessário para tipagem
-except ImportError as e:
-    # Fallback se os módulos não forem encontrados
-    def log_evento(msg, nivel='INFO'):
-        print(f"[{nivel}] osso_orcamento: {msg}")
-    def formatar_moeda(valor):
-        return f'R$ {valor:.2f}'
-    def obter_data_hora_atual():
-        return "2025-10-31 19:00:00"
-    def carregar_todos_atendimentos():
-        log_evento("AVISO: Módulo osso_data/BD não carregado.", 'WARNING')
-        return []
+    from osso_tools import log_evento
+except Exception:
+    def log_evento(msg, nivel='INFO', modulo='osso_orcamento'):
+        print(f"[{nivel}] {modulo}: {msg}")
 
-# Tabela de preços base para serviços (Pode ser movida para a tabela Configuracao do BD)
-TABELA_PRECOS_BASE = {
-    'FÊNIX': {'base': 800.00, 'complexidade_min': 1.2, 'complexidade_max': 1.8},
-    'FLORAL': {'base': 250.00, 'complexidade_min': 1.0, 'complexidade_max': 1.5},
-    'GEOMÉTRICA': {'base': 400.00, 'complexidade_min': 1.3, 'complexidade_max': 2.0},
-    'OUTRO': {'base': 100.00, 'complexidade_min': 1.0, 'complexidade_max': 1.0},
+# --- Configurações de preço ---
+PRECOS_BASE_CM2 = {
+    'Pequena': 10.00,
+    'Média': 8.00,
+    'Grande': 6.00,
 }
-TAXA_COR = 0.35 
-TAXA_TAMANHO_GRANDE = 0.50 
 
-def _identificar_servico_base(pergunta: str) -> str:
-    # ... (Lógica de identificação de serviço permanece a mesma) ...
-    pergunta_upper = pergunta.upper()
-    for termo, _ in TABELA_PRECOS_BASE.items():
-        if termo in pergunta_upper:
-            return termo
-    return 'OUTRO' 
+ADICIONAIS_COMPLEXIDADE = {
+    'Simples': 0.00,
+    'Média': 0.20,
+    'Alta': 0.50,
+}
 
-def calcular_novo_orcamento(pergunta_cliente: str, detalhes: Dict[str, Any]) -> Dict[str, Any]:
-    # ... (Lógica de cálculo permanece a mesma) ...
-    servico_base_nome = _identificar_servico_base(pergunta_cliente)
-    preco_info = TABELA_PRECOS_BASE.get(servico_base_nome, TABELA_PRECOS_BASE['OUTRO'])
-    preco_base = preco_info['base']
-    valor_adicional = 0.0
-    
-    fator_complexidade = detalhes.get('complexidade', 
-        random.uniform(preco_info.get('complexidade_min', 1.0), preco_info.get('complexidade_max', 1.0)))
-    preco_base *= fator_complexidade
+ADICIONAIS_COR = {
+    'Preto e Cinza': 0.00,
+    'Colorida': 0.30,
+}
 
-    if detalhes.get('cor', False):
-        valor_adicional += preco_base * TAXA_COR
-    if detalhes.get('tamanho', '').lower() == 'grande':
-        valor_adicional += preco_base * TAXA_TAMANHO_GRANDE
-    
-    valor_bruto = preco_base + valor_adicional
-    
-    return {
-        'status': 'ORÇAMENTO CALCULADO',
-        'data_calculo': obter_data_hora_atual(),
-        'servico_base': servico_base_nome,
-        'valor_bruto': valor_bruto,
-        'valor_final': formatar_moeda(valor_bruto) 
-    }
+ADICIONAIS_LOCAL = {
+    'Braço': 0.00,
+    'Perna': 0.00,
+    'Costas': 0.10,
+    'Tórax': 0.15,
+    'Mão': 0.20,
+    'Pé': 0.20,
+    'Pescoço': 0.25,
+    'Rosto': 0.25,
+    'Barriga': 0.20
+}
 
-def processar_atendimentos_pendentes() -> List[Dict[str, Any]]:
+# Regras do estúdio (suas confirmações)
+VALOR_MINIMO_TATTOO_ATE_5CM2 = 150.00
+VALOR_MINIMO_SESSAO_3H = 650.00
+VALOR_SESSAO_6H = 1200.00
+
+PIERCING_PRECOS = {
+    "aco": 50.0,
+    "titanio": 90.0
+}
+
+VALOR_MINIMO_GERAL = 300.00  # fallback caso queira
+
+def calcular_area(tamanho_cm: float, fator_largura: float = 0.4) -> float:
+    area_cm2 = tamanho_cm * (tamanho_cm * fator_largura)
+    log_evento(f"Cálculo de Área: {tamanho_cm}cm x {tamanho_cm * fator_largura:.1f}cm = {area_cm2:.2f} cm²", 'DEBUG', 'osso_orcamento')
+    return area_cm2
+
+def calcular_novo_orcamento(pergunta_cliente: str, parametros_calculo: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Carrega *todos* os atendimentos do BD e processa aqueles com status 'Orçamento Pendente'.
+    Retorna:
+      {
+        'valor_final': 'R$ x.xxx,xx',
+        'servico_base': 'Tatuagem ...' or 'Piercing ...',
+        'valor_bruto': float,
+        'adicionais_aplicados': [...]
+      }
     """
-    # NOVO: Carrega todos os objetos Atendimento do BD (não mais DataFrame do CSV)
-    atendimentos = carregar_todos_atendimentos() 
-    resultados = []
-    
-    # 1. Filtra os atendimentos pendentes no objeto Python
-    pendentes = [
-        att for att in atendimentos 
-        if att.status_atendimento and att.status_atendimento.strip().lower() == 'orçamento pendente'
-    ]
-    log_evento(f"Encontrados {len(pendentes)} atendimentos pendentes para processamento no BD.", 'INFO')
+    try:
+        tipo_servico = parametros_calculo.get('servico', 'Tatuagem')  # 'Tatuagem' ou 'Piercing'
+        tamanho_cm = float(parametros_calculo.get('tamanho_cm', parametros_calculo.get('tamanho', 12)))
+        cor_ou_preto = parametros_calculo.get('cor_ou_preto', parametros_calculo.get('cor', 'Preto e Cinza'))
+        complexidade = parametros_calculo.get('complexidade', 'Média')
+        local_corpo = parametros_calculo.get('local_corpo', parametros_calculo.get('local', 'Braço'))
+        sessao_opcao = parametros_calculo.get('sessao', parametros_calculo.get('opcao_sessao', 'Sessão única'))  # 'Sessão única', '3h', '6h', etc.
+        adicionais_aplicados: List[str] = []
 
-    # 2. Itera e processa
-    for att in pendentes:
-        pergunta = att.pergunta_cliente
-        cliente = att.nome_cliente
-        
-        # Simulação de extração de detalhes:
-        detalhes = {
-            'cor': 'colorida' in pergunta.lower(), 
-            'tamanho': 'grande', 
-            'complexidade': 1.5 
+        # === Piercing branch ===
+        if tipo_servico.lower().startswith('pierc'):
+            metal = parametros_calculo.get('metal', 'aco').lower()
+            preco_base = PIERCING_PRECOS.get(metal, PIERCING_PRECOS['aco'])
+            adicionais_aplicados.append(f"Material: {metal.capitalize()}")
+            valor_final = preco_base
+            valor_final_formatado = f"R$ {valor_final:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            log_evento(f"Orçamento Piercing: {valor_final_formatado}", 'INFO', 'osso_orcamento')
+            return {
+                'valor_final': valor_final_formatado,
+                'servico_base': f"Piercing ({metal})",
+                'valor_bruto': valor_final,
+                'adicionais_aplicados': adicionais_aplicados
+            }
+
+        # === Tattoo branch ===
+        # determina faixa de tamanho
+        if tamanho_cm > 20:
+            faixa_tamanho = 'Grande'
+        elif tamanho_cm > 10:
+            faixa_tamanho = 'Média'
+        else:
+            faixa_tamanho = 'Pequena'
+
+        preco_base_cm2 = PRECOS_BASE_CM2.get(faixa_tamanho, PRECOS_BASE_CM2['Média'])
+        area_cm2 = calcular_area(tamanho_cm)
+        preco_base_bruto = area_cm2 * preco_base_cm2
+        log_evento(f"Base: R$ {preco_base_bruto:.2f} (Área {area_cm2:.2f} x Preço/cm² {preco_base_cm2:.2f})", 'DEBUG', 'osso_orcamento')
+
+        # adicionais porcentuais
+        adicional_comp_pct = ADICIONAIS_COMPLEXIDADE.get(complexidade, 0.00)
+        adicional_cor_pct = ADICIONAIS_COR.get(cor_ou_preto, 0.00)
+
+        local_key = local_corpo.split('/')[0].strip().split(' ')[0]
+        adicional_local_pct = ADICIONAIS_LOCAL.get(local_key, 0.00)
+
+        if adicional_comp_pct > 0:
+            adicionais_aplicados.append(f"Complexidade {complexidade} (+{int(adicional_comp_pct*100)}%)")
+        if adicional_cor_pct > 0:
+            adicionais_aplicados.append(f"Tinta {cor_ou_preto} (+{int(adicional_cor_pct*100)}%)")
+        if adicional_local_pct > 0:
+            adicionais_aplicados.append(f"Local: {local_corpo} (+{int(adicional_local_pct*100)}%)")
+
+        adicional_total_percentual = adicional_comp_pct + adicional_cor_pct + adicional_local_pct
+        valor_com_adicionais = preco_base_bruto * (1 + adicional_total_percentual)
+
+        # aplica regras de sessão
+        if str(sessao_opcao).lower().startswith('6'):
+            # sessão 6h fixa
+            valor_final = VALOR_SESSAO_6H
+            adicionais_aplicados.append("Sessão 6h (valor fixo)")
+        elif str(sessao_opcao).lower().startswith('3'):
+            # ao menos o mínimo de 3h
+            valor_final = max(valor_com_adicionais, VALOR_MINIMO_SESSAO_3H)
+            adicionais_aplicados.append("Sessão 3h (mínimo aplicado se necessário)")
+        else:
+            # sessão única: aplica mínimo por área
+            if area_cm2 <= 5.0:
+                # especial: se área pequena, preço mínimo R$150
+                valor_final = max(valor_com_adicionais, VALOR_MINIMO_TATTOO_ATE_5CM2)
+                if valor_final == VALOR_MINIMO_TATTOO_ATE_5CM2:
+                    adicionais_aplicados.append(f"Valor mínimo aplicado para <=5cm² (R$ {VALOR_MINIMO_TATTOO_ATE_5CM2:.2f})")
+            else:
+                valor_final = max(valor_com_adicionais, VALOR_MINIMO_GERAL)
+
+        # Caso valor_final ainda muito baixo, aplica fallback
+        if valor_final < 1.0:
+            valor_final = VALOR_MINIMO_GERAL
+
+        # formatar
+        valor_final_formatado = f"R$ {valor_final:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+        log_evento(f"Estimativa final: {valor_final_formatado}", 'INFO', 'osso_orcamento')
+        return {
+            'valor_final': valor_final_formatado,
+            'servico_base': f"Tatuagem {faixa_tamanho} ({tamanho_cm:.1f}cm)",
+            'valor_bruto': float(valor_final),
+            'adicionais_aplicados': adicionais_aplicados
         }
-        
-        orcamento = calcular_novo_orcamento(pergunta, detalhes)
-        
-        # NOVO: Atualiza o banco de dados com o valor e o status
-        id_orcamento = f"OSSO-{att.id}-{random.randint(100,999)}"
-        atualizar_orcamento_atendimento(att.id, orcamento['valor_bruto'], id_orcamento)
-        
-        resultados.append({
-            'cliente': cliente,
-            'pergunta_original': pergunta,
-            **orcamento 
-        })
 
-    return resultados
-
-# --- Bloco de Testes ---
-if __name__ == '__main__':
-    log_evento(f"Iniciando testes do {os.path.basename(__file__)} (BD Refatorado)", 'INFO')
-    
-    # IMPORTANTE: Este teste exige que o BD já tenha registros com status 'Orçamento Pendente'!
-    # Como o seu BD atual SÓ tem um registro como 'Orçamento Calculado', vamos adicionar um novo:
-    
-    from osso_data import registrar_novo_atendimento
-    
-    novo_atendimento = registrar_novo_atendimento({
-        'nome_cliente': 'Alice',
-        'whatsapp': '5521912345678',
-        'pergunta_cliente': 'Quanto custa uma tattoo de Fênix colorida, tamanho grande?',
-    })
-    
-    if novo_atendimento:
-        log_evento(f"Novo lead de teste (Alice) adicionado com sucesso.", 'INFO')
-        
-    # Processa os atendimentos pendentes no BD
-    resultados_processados = processar_atendimentos_pendentes()
-
-    print("\n--- Resultados do Processamento de Orçamentos Pendentes ---")
-    if resultados_processados:
-        for res in resultados_processados:
-            print("-" * 30)
-            print(f"CLIENTE: {res['cliente']}")
-            print(f"SERVIÇO: {res['servico_base']}")
-            print(f"VALOR CALCULADO: {res['valor_final']}")
-    else:
-        print("Nenhum atendimento pendente encontrado ou processado.")
-
-    log_evento("Testes do osso_orcamento.py concluídos.", 'INFO')
+    except Exception as e:
+        log_evento(f"Erro no cálculo do orçamento: {e}", 'ERROR', 'osso_orcamento')
+        return {
+            'valor_final': 'R$ 0,00',
+            'servico_base': 'ERRO DE CÁLCULO',
+            'valor_bruto': 0.0,
+            'adicionais_aplicados': ["Erro ao processar dados de entrada."]
+        }

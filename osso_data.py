@@ -1,111 +1,124 @@
-# osso_data.py
-# Módulo: OssoData (O Arquivista) - VERSÃO FINAL ESTÁVEL COM BD (Removido o campo 'email' problemático)
+# -*- coding: utf-8 -*-
+# osso_data.py - BANCO DE DADOS FIRESTORE (CORRIGIDO)
 
-import pandas as pd
-from sqlalchemy.orm import Session
-from sqlalchemy import select
-from typing import Dict, Any, List 
 import os
+import json
+from typing import Optional, Dict, Any
 
-# Importa as ferramentas de log e a estrutura do banco de dados
+from firebase_admin import credentials, firestore
+import firebase_admin
+from osso_tools import log_evento
+
+# Caminho da chave local
+SERVICE_KEY_PATH = os.path.join(os.path.dirname(__file__), "meu-segredo.json")
+
+# --- Inicialização do Firebase Admin SDK ---
 try:
-    from osso_tools import log_evento
-    from osso_models import SessionLocal, criar_tabelas, Atendimento 
-except ImportError as e:
-    log_evento(f"ERRO CRÍTICO: Falha ao importar dependências do BD. {e}", 'CRITICAL')
-    class StubSession:
-        def __enter__(self): return self
-        def __exit__(self, exc_type, exc_val, exc_tb): pass
-    SessionLocal = StubSession 
+    if os.path.exists(SERVICE_KEY_PATH):
+        cred = credentials.Certificate(SERVICE_KEY_PATH)
+        firebase_admin.initialize_app(cred)
+        log_evento("Firebase carregado LOCALMENTE usando meu-segredo.json.", "INFO", "osso_data")
+    else:
+        firebase_admin.initialize_app()
+        log_evento("Firebase carregado AUTOMATICAMENTE (Cloud Run ADC).", "INFO", "osso_data")
 
-def inicializar_banco_dados():
-    try:
-        criar_tabelas()
-        log_evento("Estrutura do banco de dados inicializada (BD).", 'INFO')
-    except Exception as e:
-        log_evento(f"Erro ao criar tabelas do BD: {e}", 'CRITICAL')
+except ValueError:
+    # Firebase já estava inicializado
+    pass
 
-def registrar_novo_atendimento(dados_cliente: dict) -> Atendimento | None:
-    """
-    Cria uma nova entrada de atendimento no BD.
-    CORRIGIDO: O campo 'email' foi removido para evitar o erro de chave inválida.
-    """
-    
-    # 1. Cria um dicionário limpo com apenas os campos do BD
-    dados_limpos = {
-        'nome_cliente': dados_cliente.get('nome_cliente', 'Sem Nome'),
-        'whatsapp': dados_cliente.get('whatsapp', 'N/A'),
-        # 'email' FOI REMOVIDO PARA EVITAR O ERRO CRÍTICO DE CHAVE INVÁLIDA NO SQLAlchemy
-        'pergunta_cliente': dados_cliente.get('pergunta_cliente', 'Vazio'),
-        'status_atendimento': "Orçamento Pendente"
-    }
-    
-    novo_atendimento = Atendimento(**dados_limpos)
-    
-    # 2. Salva no BD
-    try:
-        with SessionLocal() as session:
-            session.add(novo_atendimento)
-            session.commit() 
-            session.refresh(novo_atendimento) 
-        log_evento(f"Novo atendimento registrado para '{novo_atendimento.nome_cliente}' (ID: {novo_atendimento.id}).", 'INFO')
-        return novo_atendimento
-    except Exception as e:
-        log_evento(f"Erro ao registrar novo atendimento no BD: {e}", 'ERROR')
-        return None
+# Cliente Firestore
+DB = firestore.client()
+ATENDIMENTOS_COLLECTION = "atendimentos"
 
-def carregar_todos_atendimentos() -> List[Atendimento]:
-    # Lógica de leitura...
-    try:
-        with SessionLocal() as session:
-            stmt = select(Atendimento)
-            atendimentos = session.execute(stmt).scalars().all()
-        return atendimentos
-    except Exception as e:
-        log_evento(f"Erro ao carregar atendimentos do BD: {e}", 'ERROR')
-        return []
 
-def obter_resumo_atendimentos(atendimentos: List[Atendimento]) -> Dict[str, Any]:
-    # Lógica de resumo...
-    if not atendimentos:
-        return {'total_atendimentos': 0, 'clientes_unicos': 0, 'contagem_status': {}}
+# ------------------- Estrutura do Atendimento -------------------
+class AtendimentoRef:
+    def __init__(self, id: str, status: str, dados: Dict[str, Any]):
+        self.id = id
+        self.status = status
+        self.nome_cliente = dados.get("nome_cliente", "")
+        self.ideia_tatuagem = dados.get("ideia_tatuagem", "")
+        self.telefone = dados.get("telefone", "")
+        self.orcamento_base = dados.get("orcamento_base", 0.0)
+        self.duracao_estimada = dados.get("duracao_estimada", 0.0)
+        self.data_agendamento = dados.get("data_agendamento")
+        self.hora_agendamento = dados.get("hora_agendamento")
 
-    df = pd.DataFrame([{
-        'nome_cliente': a.nome_cliente,
-        'status_atendimento': a.status_atendimento
-    } for a in atendimentos])
+    def to_dict(self):
+        d = self.__dict__.copy()
+        d.pop("id", None)
+        return d
 
-    total_atendimentos = len(df)
-    clientes_unicos = df['nome_cliente'].nunique()
-    contagem_status = df['status_atendimento'].value_counts().to_dict()
+    @classmethod
+    def from_dict(cls, doc_id: str, dados: Dict[str, Any]):
+        o = cls(doc_id, dados.get("status", "DESCONHECIDO"), dados)
+        for k, v in dados.items():
+            setattr(o, k, v)
+        return o
 
-    return {
-        'total_atendimentos': total_atendimentos,
-        'clientes_unicos': clientes_unicos,
-        'contagem_status': contagem_status
+
+# ------------------- Funções de Banco -------------------
+def registrar_novo_atendimento(payload: Dict[str, str], status_inicial: str) -> AtendimentoRef:
+    data = {
+        "status": status_inicial,
+        "nome_cliente": payload.get("nome_cliente"),
+        "ideia_tatuagem": payload.get("ideia_tatuagem"),
+        "telefone": payload.get("telefone"),
+        "orcamento_base": 0.0,
+        "duracao_estimada": 0.0,
+        "data_agendamento": None,
+        "hora_agendamento": None
     }
 
-def atualizar_orcamento_atendimento(atendimento_id: int, valor: float, id_orcamento: str) -> bool:
-    # Lógica de atualização...
-    try:
-        with SessionLocal() as session:
-            atendimento = session.get(Atendimento, atendimento_id)
-            if not atendimento:
-                log_evento(f"Atendimento ID {atendimento_id} não encontrado para atualização.", 'WARNING')
-                return False
-            
-            atendimento.valor_calculado = valor
-            atendimento.id_orcamento = id_orcamento
-            atendimento.status_atendimento = "Orçamento Calculado"
-            
-            session.commit()
-            return True
-    except Exception as e:
-        log_evento(f"Erro ao atualizar orçamento no BD: {e}", 'ERROR')
-        return False
+    _, ref = DB.collection(ATENDIMENTOS_COLLECTION).add(data)
+    log_evento(f"Novo atendimento criado: {ref.id}", "INFO", "osso_data")
+    return AtendimentoRef.from_dict(ref.id, data)
 
-# --- Bloco de Testes ---
-if __name__ == '__main__':
-    log_evento("Iniciando testes do Módulo OssoData...", 'INFO')
-    inicializar_banco_dados()
-    log_evento("Testes do osso_data.py concluídos.", 'INFO')
+
+def obter_atendimento_por_id(atendimento_id: str) -> Optional[AtendimentoRef]:
+    doc = DB.collection(ATENDIMENTOS_COLLECTION).document(atendimento_id).get()
+
+    if doc.exists:
+        return AtendimentoRef.from_dict(doc.id, doc.to_dict())
+    return None
+
+
+def atualizar_status_atendimento(
+    atendimento_id: str,
+    novo_status: str,
+    orcamento_base=None,
+    duracao_estimada=None,
+    data_agendamento=None,
+    hora_agendamento=None
+):
+    ref = DB.collection(ATENDIMENTOS_COLLECTION).document(atendimento_id)
+    data = {"status": novo_status}
+
+    if orcamento_base is not None:
+        data["orcamento_base"] = orcamento_base
+
+    if duracao_estimada is not None:
+        data["duracao_estimada"] = duracao_estimada
+
+    if data_agendamento is not None:
+        data["data_agendamento"] = data_agendamento
+
+    if hora_agendamento is not None:
+        data["hora_agendamento"] = hora_agendamento
+
+    ref.update(data)
+    log_evento(f"Atendimento {atendimento_id} atualizado em Firestore.", "INFO", "osso_data")
+    return True
+
+
+# Não usado no Firestore, mas necessário para compatibilidade
+def reset_bd_simulado():
+    log_evento("Reset ignorado. Firestore é persistente.", "DEBUG", "osso_data")
+
+
+def dump_atendimento(atendimento_id: str):
+    doc = obter_atendimento_por_id(atendimento_id)
+    if doc:
+        print(json.dumps(doc.to_dict(), indent=4, ensure_ascii=False))
+    else:
+        print("ID não encontrado no Firestore.")

@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Bone • Orçamento Instantâneo</title>
+
+<style>
+:root{
+  --bg:#0b0b0c;
+  --card:#0f0f10;
+  --muted:#9aa2ab;
+  --accent:#ff6a00; /* laranja queimado */
+  --accent-2:#7a3f00;
+  --glass: rgba(255,255,255,0.03);
+  --radius:14px;
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:linear-gradient(180deg,#071017 0%, #0b0b0c 40%, #1a0f07 100%);color:#fff;min-height:100vh;padding:20px}
+.container{max-width:980px;margin:18px auto;display:grid;grid-template-columns:1fr;gap:18px;padding:14px}
+.header{display:flex;align-items:center;gap:12px}
+.logo{width:56px;height:56px;border-radius:10px;background:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:700;color:#111}
+.title{font-size:18px;font-weight:700}
+.grid{display:grid;grid-template-columns:1fr;gap:18px}
+.card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));padding:18px;border-radius:var(--radius);border:1px solid rgba(255,255,255,0.03)}
+.form-row{display:flex;gap:10px;flex-wrap:wrap}
+label{font-size:13px;color:var(--muted);display:block;margin-bottom:8px}
+.input, textarea, select{width:100%;padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:#fff;font-size:14px}
+textarea{min-height:110px;resize:vertical}
+.row-two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.btn-primary{background:var(--accent);color:#fff;border:none;padding:12px;border-radius:10px;font-weight:700;cursor:pointer}
+.small{font-size:12px;color:var(--muted)}
+.result-box{min-height:220px;padding:18px;border-radius:12px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.02));border:1px solid rgba(255,255,255,0.03)}
+.kv{display:flex;justify-content:space-between;gap:12px;margin-top:12px}
+.kv .k{color:var(--muted);font-size:13px}
+.kv .v{font-weight:700;color:#fff}
+.badge{display:inline-block;padding:6px 10px;border-radius:999px;border:1px solid rgba(255,255,255,0.03);background:linear-gradient(90deg, rgba(255,255,255,0.01), rgba(0,0,0,0.03));font-size:13px;color:var(--muted)}
+@media(min-width:900px){
+  .grid{grid-template-columns:420px 1fr}
+  .container{padding:0}
+}
+.footer{margin-top:8px;font-size:12px;color:var(--muted)}
+.accent-small{color:var(--accent);font-weight:700}
+</style>
+</head>
+<body>
+
+<div class="container">
+  <div class="header">
+    <div class="logo">B</div>
+    <div>
+      <div class="title">BONE • Atendimento e Orçamento</div>
+      <div class="small">Orçamento instantâneo — estilo dark premium</div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <!-- FORM -->
+    <div class="card">
+      <form id="formOrcamento">
+        <label>Nome Completo *</label>
+        <input class="input" name="nome" required placeholder="Digite seu nome completo" />
+
+        <div class="form-row">
+          <div style="flex:1">
+            <label>Email *</label>
+            <input class="input" name="email" type="email" required placeholder="seu@email.com" />
+          </div>
+          <div style="width:170px">
+            <label>WhatsApp *</label>
+            <input class="input" name="whatsapp" required placeholder="(11) 99999-9999" />
+          </div>
+        </div>
+
+        <label>Serviço Desejado *</label>
+        <select class="input" name="servico" required>
+          <option value="Tatuagem">Tatuagem</option>
+          <option value="Cobertura">Cobertura</option>
+          <option value="Desenho Personalizado">Desenho Personalizado</option>
+          <option value="Piercing">Piercing</option>
+        </select>
+
+        <label>Descreva sua ideia</label>
+        <textarea name="pergunta" placeholder="Conte-nos sobre estilo, tamanho, localização..."></textarea>
+
+        <div class="row-two" style="margin-top:10px">
+          <div>
+            <label>Tamanho (cm) — comprimento aproximado</label>
+            <input class="input" name="tamanho" value="12" />
+          </div>
+          <div>
+            <label>Complexidade</label>
+            <select class="input" name="complexidade">
+              <option>Simples</option>
+              <option selected>Média</option>
+              <option>Alta</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row-two" style="margin-top:10px">
+          <div>
+            <label>Cor</label>
+            <select class="input" name="cor">
+              <option selected>Preto e Cinza</option>
+              <option>Colorida</option>
+            </select>
+          </div>
+          <div>
+            <label>Local no corpo</label>
+            <select class="input" name="local">
+              <option>Braço</option>
+              <option>Perna</option>
+              <option>Costas</option>
+              <option>Tórax</option>
+              <option>Rosto</option>
+              <option>Pescoço</option>
+              <option>Costas</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="margin-top:12px">
+          <label>Opção de Sessão</label>
+          <select class="input" name="sessao">
+            <option value="Sessão única">Sessão única</option>
+            <option value="3h">Sessão 3h (mínimo)</option>
+            <option value="6h">Sessão 6h (fechamento)</option>
+          </select>
+        </div>
+
+        <div style="display:flex;gap:10px;margin-top:14px">
+          <button class="btn-primary" type="submit" id="btnEnviar">Enviar para o Bone</button>
+          <button type="button" id="btnLimpar" class="badge" onclick="document.getElementById('formOrcamento').reset()">Limpar</button>
+        </div>
+
+        <div class="small" style="margin-top:12px">
+          Valor mínimo Tattoo: <span class="accent-small">R$ 150</span> (até 5cm²). Sessão 3h: <span class="accent-small">R$ 650</span> — Sessão 6h: <span class="accent-small">R$ 1.200</span>.
+        </div>
+      </form>
+    </div>
+
+    <!-- RESULT -->
+    <div class="card result-box" id="resultadoCard">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div><strong>Pré-visualização do Orçamento</strong><div class="small">Resultado em tempo real após envio</div></div>
+        <div class="badge">API: <span id="apiStatus" style="color:var(--accent);font-weight:700">ok</span></div>
+      </div>
+
+      <div id="resultado" style="margin-top:16px">Preencha o formulário e clique em <strong>Enviar para o Bone</strong>.</div>
+
+      <div class="kv">
+        <div class="k">ID do atendimento</div><div class="v" id="idAtendimento">—</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">© Bone • Sistema de Orçamentos — Teste Local</div>
+</div>
+
+<script>
+const endpoint = "http://127.0.0.1:5000/webhook"; // seu endpoint local
+const form = document.getElementById('formOrcamento');
+const resultado = document.getElementById('resultado');
+const apiStatus = document.getElementById('apiStatus');
+const idAtendimento = document.getElementById('idAtendimento');
+const btnEnviar = document.getElementById('btnEnviar');
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  btnEnviar.disabled = true;
+  btnEnviar.textContent = "Enviando...";
+  resultado.innerHTML = "Enviando e calculando...";
+  apiStatus.textContent = "ok";
+
+  const dados = Object.fromEntries(new FormData(form).entries());
+
+  // normaliza nomes conforme osso_api espera
+  if (!dados.tamanho) dados.tamanho = 12;
+
+  try {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify(dados)
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      resultado.innerHTML = `<div style="color:#ff6a00;font-weight:700">Erro ao comunicar com a API: ${res.status} — ${text}</div>`;
+      apiStatus.textContent = "erro";
+      btnEnviar.disabled = false;
+      btnEnviar.textContent = "Enviar para o Bone";
+      return;
+    }
+
+    const json = await res.json();
+    idAtendimento.textContent = json.id_atendimento || "—";
+
+    // monta visual bonito
+    let html = `<div><strong>Resposta do Bone</strong></div><div style="margin-top:10px;white-space:pre-wrap">${json.resposta_do_osso || json.resposta}</div>`;
+    if (json.orcamento) {
+      html += `<hr style="border-color: rgba(255,255,255,0.03);margin:12px 0">`;
+      html += `<div><strong>Orçamento Gerado</strong></div>`;
+      html += `<div style="margin-top:8px">Valor: <span style="color:var(--accent);font-weight:800">${json.orcamento.valor_final}</span></div>`;
+      html += `<div>Base: ${json.orcamento.servico_base}</div>`;
+      if (json.orcamento.adicionais_aplicados && json.orcamento.adicionais_aplicados.length) {
+        html += `<div style="margin-top:8px"><strong>Adicionais:</strong><ul>`;
+        json.orcamento.adicionais_aplicados.forEach(a => html += `<li>${a}</li>`);
+        html += `</ul></div>`;
+      }
+    }
+
+    resultado.innerHTML = html;
+    apiStatus.textContent = "ok";
+
+  } catch (err) {
+    resultado.innerHTML = `<div style="color:#ff6a00;font-weight:700">Erro ao comunicar com a API: ${err.message || err}</div>`;
+    apiStatus.textContent = "erro";
+  } finally {
+    btnEnviar.disabled = false;
+    btnEnviar.textContent = "Enviar para o Bone";
+  }
+});
+</script>
+
+</body>
+</html>
